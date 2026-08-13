@@ -1,0 +1,159 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  CONVERTED
+}
+
+enum BookingStatus {
+  COMPLETED
+  ONGOING
+  PENDING
+}
+
+enum EditingWorkflowStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum EditingOverallStatus {
+  PENDING
+  ONGOING
+  COMPLETED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  mobile       String   @unique
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(ADMIN)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+model StudioSettings {
+  id            String   @id @default(cuid())
+  studioName    String
+  ownerName     String
+  mobile        String
+  email         String
+  address       String
+  gstNumber     String?
+  invoicePrefix String   @default("INV")
+  invoiceStartingNumber Int    @default(1)
+  defaultTaxPercentage  Float  @default(0)
+  invoiceTerms          String?
+  invoiceFooter         String?
+  logoUrl       String?
+  instagramHandle String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("studio_settings")
+}
+
+model Meeting {
+  id               String        @id @default(cuid())
+  clientName       String
+  mobile           String
+  email            String?
+  meetingDate      DateTime
+  meetingTime      String
+  eventType        String
+  photographerName String?
+  eventLocation    String?
+  notes            String?
+  status           MeetingStatus @default(SCHEDULED)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@map("meetings")
+}
+
+model Booking {
+  id               String        @id @default(cuid())
+  bookingNumber    String        @unique
+  clientName       String
+  mobile           String
+  eventName        String
+  eventDate        DateTime
+  photographerName String?
+  totalAmount      Float         @default(0)
+  advanceAmount    Float         @default(0)
+  balanceAmount    Float         @default(0)
+  status           BookingStatus @default(PENDING)
+  editingProject   EditingProject?
+  invoices         Invoice[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@map("bookings")
+}
+
+model EditingProject {
+  id             String                 @id @default(cuid())
+  bookingId      String                 @unique
+  editorName     String
+  assignedDate   DateTime
+  selectionStatus EditingWorkflowStatus @default(PENDING)
+  albumStatus    EditingWorkflowStatus @default(PENDING)
+  videoStatus    EditingWorkflowStatus @default(PENDING)
+  coverStatus    EditingWorkflowStatus @default(PENDING)
+  pendriveStatus EditingWorkflowStatus @default(PENDING)
+  handoverStatus  EditingWorkflowStatus @default(PENDING)
+  overallStatus  EditingOverallStatus   @default(PENDING)
+  remarks        String?
+  booking        Booking                @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@map("editing_projects")
+}
+
+model Invoice {
+  id           String   @id @default(cuid())
+  bookingId    String
+  invoiceNumber String  @unique
+  invoiceDate  DateTime
+  totalAmount  Float
+  discount     Float    @default(0)
+  tax         Float    @default(0)
+  grandTotal  Float
+  notes       String?
+  pdfUrl           String?
+  weddingDates     String?
+  clientAddress    String?
+  servicesJson     String?
+  albumDetailsJson String?
+  paymentTermsJson String?
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoices")
+}
+
