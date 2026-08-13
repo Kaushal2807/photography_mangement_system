@@ -21,6 +21,8 @@ const studioSchema = z.object({
   gstNumber: z.string().optional(),
 });
 
+type UpdateStudioDto = z.infer<typeof studioSchema>;
+
 export default function SettingsPage() {
   const { data: studioData, isLoading: loadingStudio, refetch: refetchStudio } = useStudioSettings();
   const updateStudio = useUpdateStudioSettings();
@@ -186,7 +188,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="md:col-span-2 flex items-center justify-end gap-3">
-                <Button type="submit" disabled={updateStudio.isLoading}>Save Changes</Button>
+                <Button type="submit" disabled={updateStudio.isPending}>Save Changes</Button>
               </div>
             </form>
           </CardContent>
@@ -225,7 +227,7 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex justify-end">
-                <Button type="submit" disabled={updateInvoice.isLoading}>Save Invoice Settings</Button>
+                <Button type="submit" disabled={updateInvoice.isPending}>Save Invoice Settings</Button>
               </div>
             </form>
           </CardContent>
@@ -251,7 +253,7 @@ export default function SettingsPage() {
                 <Input className="mt-1" value={accountForm.email} onChange={(e) => setAccountForm((s) => ({ ...s, email: e.target.value }))} />
               </div>
               <div className="md:col-span-2 flex justify-end">
-                <Button type="submit" disabled={updateAccount.isLoading}>Save Account</Button>
+                <Button type="submit" disabled={updateAccount.isPending}>Save Account</Button>
               </div>
             </form>
           </CardContent>
@@ -277,7 +279,7 @@ export default function SettingsPage() {
                 <Input name="confirmPassword" type="password" className="mt-1" />
               </div>
               <div className="md:col-span-2 flex justify-end">
-                <Button type="submit" disabled={changePassword.isLoading}>Change Password</Button>
+                <Button type="submit" disabled={changePassword.isPending}>Change Password</Button>
               </div>
             </form>
           </CardContent>

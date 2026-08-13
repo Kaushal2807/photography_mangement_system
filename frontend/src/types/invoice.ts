@@ -101,6 +101,8 @@ export interface InvoiceStudioSummary {
   logoUrl: string | null;
   invoicePrefix: string;
   instagramHandle: string | null;
+  invoiceTerms?: string | null;
+  invoiceFooter?: string | null;
 }
 
 export interface InvoiceDetailData {
