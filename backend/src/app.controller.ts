@@ -14,5 +14,10 @@ export class AppController {
   async getHealth() {
     return this.appService.getHealth();
   }
+
+  @Get('dashboard/stats')
+  async getDashboardStats() {
+    return this.appService.getDashboardStats();
+  }
 }
 
