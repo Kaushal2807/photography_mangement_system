@@ -29,6 +29,7 @@ export interface InvoiceListItem {
   tax: number;
   grandTotal: number;
   notes: string | null;
+  terms: string | null;
   pdfUrl: string | null;
   weddingDates: string | null;
   clientAddress: string | null;
@@ -124,6 +125,7 @@ export interface InvoiceBookingContextData {
     servicesJson: string;
     albumDetailsJson: string;
     paymentTermsJson: string;
+    terms: string;
   };
 }
 
@@ -168,6 +170,7 @@ export interface CreateInvoicePayload {
   discount?: number;
   tax?: number;
   notes?: string;
+  terms?: string;
   weddingDates?: string;
   clientAddress?: string;
   servicesJson?: string;
@@ -179,6 +182,7 @@ export interface UpdateInvoicePayload {
   discount?: number;
   tax?: number;
   notes?: string;
+  terms?: string;
   weddingDates?: string;
   clientAddress?: string;
   servicesJson?: string;

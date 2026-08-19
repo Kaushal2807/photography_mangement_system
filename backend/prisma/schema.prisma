@@ -144,6 +144,7 @@ model Invoice {
   tax         Float    @default(0)
   grandTotal  Float
   notes       String?
+  terms       String?
   pdfUrl           String?
   weddingDates     String?
   clientAddress    String?

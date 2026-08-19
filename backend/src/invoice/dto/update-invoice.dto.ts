@@ -20,6 +20,10 @@ export class UpdateInvoiceDto {
 
   @IsOptional()
   @IsString()
+  terms?: string;
+
+  @IsOptional()
+  @IsString()
   weddingDates?: string;
 
   @IsOptional()

@@ -43,6 +43,7 @@ const invoiceSchema = z.object({
   discount: z.number().min(0),
   tax: z.number().min(0),
   notes: z.string().optional(),
+  terms: z.string().optional(),
   advance: z.number().min(0).optional(),
   weddingDay: z.number().min(0).optional(),
   handoverDay: z.number().min(0).optional(),
@@ -67,6 +68,7 @@ export default function InvoiceNewPage() {
       discount: 0,
       tax: 0,
       notes: "",
+      terms: "",
       advance: 0,
       weddingDay: 0,
       handoverDay: 0,
@@ -143,6 +145,9 @@ export default function InvoiceNewPage() {
     form.setValue("advance", advance);
     form.setValue("weddingDay", wDay);
     form.setValue("handoverDay", hDay);
+    if (bookingContext?.defaults.terms || bookingContext?.studio?.invoiceTerms) {
+      form.setValue("terms", bookingContext?.defaults.terms || bookingContext?.studio?.invoiceTerms || "");
+    }
     setServices(contextServices);
     setAlbumDetails(contextAlbumDetails);
   }, [bookingContext, bookingId, contextAlbumDetails, contextServices, form, selectedBooking]);
@@ -176,6 +181,7 @@ export default function InvoiceNewPage() {
         discount: Number(values.discount) || 0,
         tax: Number(values.tax) || 0,
         notes: values.notes?.trim() || undefined,
+        terms: values.terms?.trim() || undefined,
         servicesJson: JSON.stringify(services),
         albumDetailsJson: JSON.stringify(albumDetails),
         paymentTermsJson: JSON.stringify(paymentTerms),
@@ -189,6 +195,48 @@ export default function InvoiceNewPage() {
   };
 
   const bookingOptions = bookingData?.data ?? [];
+
+  const handleServiceChange = (index: number, field: keyof ServiceItem, value: string) => {
+    setServices((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddService = () => {
+    setServices((prev) => [
+      ...prev,
+      { itemNo: prev.length + 1, description: "", days: "01" },
+    ]);
+  };
+
+  const handleRemoveService = (index: number) => {
+    setServices((prev) =>
+      prev
+        .filter((_, idx) => idx !== index)
+        .map((item, idx) => ({ ...item, itemNo: idx + 1 }))
+    );
+  };
+
+  const handleAlbumDetailChange = (index: number, field: keyof AlbumDetailItem, value: string) => {
+    setAlbumDetails((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddAlbumDetail = () => {
+    setAlbumDetails((prev) => [
+      ...prev,
+      { itemNo: prev.length + 1, description: "", qnt: "01", finish: "" },
+    ]);
+  };
+
+  const handleRemoveAlbumDetail = (index: number) => {
+    setAlbumDetails((prev) =>
+      prev
+        .filter((_, idx) => idx !== index)
+        .map((item, idx) => ({ ...item, itemNo: idx + 1 }))
+    );
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -263,8 +311,18 @@ export default function InvoiceNewPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-slate-900">2. Coverage Services (Page 1 Table)</CardTitle>
-                  <CardDescription>Auto-loaded package rows from booking context</CardDescription>
+                <CardDescription>Customize package rows to display on invoice</CardDescription>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddService}
+                className="h-8 border-sky-200 text-xs text-sky-600 hover:bg-sky-50"
+              >
+                <Plus className="mr-1 size-3.5" />
+                Add Service
+              </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {services.map((service, idx) => (
@@ -273,15 +331,26 @@ export default function InvoiceNewPage() {
                   <Input
                     className="flex-1 text-xs uppercase"
                     value={service.description}
-                      readOnly
+                    onChange={(e) => handleServiceChange(idx, "description", e.target.value)}
                     placeholder="Description"
                   />
                   <Input
-                    className="w-20 text-xs text-center"
+                    className="w-20 text-center text-xs"
                     value={service.days}
-                      readOnly
+                    onChange={(e) => handleServiceChange(idx, "days", e.target.value)}
                     placeholder="Days"
                   />
+                  {services.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-rose-500 hover:bg-rose-50 hover:text-rose-700"
+                      onClick={() => handleRemoveService(idx)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </CardContent>
@@ -291,8 +360,18 @@ export default function InvoiceNewPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-slate-900">3. Album Deliverables (Page 2 Table)</CardTitle>
-                  <CardDescription>Auto-loaded album deliverables from booking context</CardDescription>
+                <CardDescription>Customize album deliverables to display on invoice</CardDescription>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddAlbumDetail}
+                className="h-8 border-sky-200 text-xs text-sky-600 hover:bg-sky-50"
+              >
+                <Plus className="mr-1 size-3.5" />
+                Add Deliverable
+              </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {albumDetails.map((album, idx) => (
@@ -301,21 +380,32 @@ export default function InvoiceNewPage() {
                   <Input
                     className="flex-1 text-xs uppercase"
                     value={album.description}
-                      readOnly
+                    onChange={(e) => handleAlbumDetailChange(idx, "description", e.target.value)}
                     placeholder="Description"
                   />
                   <Input
                     className="w-20 text-xs"
                     value={album.qnt}
-                      readOnly
+                    onChange={(e) => handleAlbumDetailChange(idx, "qnt", e.target.value)}
                     placeholder="Qnt"
                   />
                   <Input
                     className="w-24 text-xs uppercase"
                     value={album.finish}
-                      readOnly
-                    placeholder="Finish"
+                    onChange={(e) => handleAlbumDetailChange(idx, "finish", e.target.value)}
+                    placeholder="Amount"
                   />
+                  {albumDetails.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-rose-500 hover:bg-rose-50 hover:text-rose-700"
+                      onClick={() => handleRemoveAlbumDetail(idx)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </CardContent>
@@ -345,6 +435,11 @@ export default function InvoiceNewPage() {
               <div className="md:col-span-3">
                 <label className="text-xs font-semibold text-slate-600">Invoice Notes</label>
                 <Textarea {...form.register("notes")} placeholder="Optional invoice notes or payment instructions" className="mt-1 min-h-20" />
+              </div>
+
+              <div className="md:col-span-3">
+                <label className="text-xs font-semibold text-slate-600">Terms & Conditions</label>
+                <Textarea {...form.register("terms")} placeholder="Studio terms and conditions for this invoice" className="mt-1 min-h-24" />
               </div>
             </CardContent>
           </Card>

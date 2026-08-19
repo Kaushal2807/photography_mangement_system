@@ -133,6 +133,7 @@ type InvoiceContextPayload = {
     servicesJson: string;
     albumDetailsJson: string;
     paymentTermsJson: string;
+    terms: string;
   };
 };
 
@@ -216,6 +217,7 @@ export class InvoiceService {
       tax: Number(invoice.tax),
       grandTotal: Number(invoice.grandTotal),
       notes: invoice.notes,
+      terms: invoice.terms,
       pdfUrl: invoice.pdfUrl,
       weddingDates: invoice.weddingDates,
       clientAddress: invoice.clientAddress,
@@ -306,7 +308,7 @@ export class InvoiceService {
     });
   }
 
-  private buildInvoiceDefaults(booking: BookingWithRelations, meeting: Awaited<ReturnType<InvoiceService['findRelatedMeeting']>>) {
+  private buildInvoiceDefaults(booking: BookingWithRelations, meeting: Awaited<ReturnType<InvoiceService['findRelatedMeeting']>>, studio: Awaited<ReturnType<InvoiceService['getStudioSettings']>>) {
     const weddingDateText = `${new Date(booking.eventDate).toLocaleDateString('en-GB')}`;
     const meetingDateText = meeting ? new Date(meeting.meetingDate).toLocaleDateString('en-GB') : weddingDateText;
     const eventLocation = meeting?.eventLocation?.trim();
@@ -321,6 +323,7 @@ export class InvoiceService {
       paymentTermsJson: JSON.stringify(
         this.getDefaultPaymentTerms(booking.totalAmount, booking.advanceAmount, booking.balanceAmount),
       ),
+      terms: (studio as any)?.invoiceTerms || 'All deliverables are prepared according to studio standards. Final output is released after agreed payments are settled.',
     };
   }
 
@@ -354,7 +357,7 @@ export class InvoiceService {
             instagramHandle: studio.instagramHandle,
           }
         : null,
-      defaults: this.buildInvoiceDefaults(booking, meeting),
+      defaults: this.buildInvoiceDefaults(booking, meeting, studio),
     };
   }
 
@@ -410,7 +413,7 @@ export class InvoiceService {
   buildInvoiceHtmlDocument(
     invoice: Pick<
       InvoiceWithRelations,
-      'invoiceNumber' | 'invoiceDate' | 'notes' | 'totalAmount' | 'discount' | 'tax' | 'grandTotal' | 'clientAddress' | 'servicesJson' | 'albumDetailsJson' | 'paymentTermsJson' | 'booking'
+      'invoiceNumber' | 'invoiceDate' | 'notes' | 'terms' | 'totalAmount' | 'discount' | 'tax' | 'grandTotal' | 'clientAddress' | 'servicesJson' | 'albumDetailsJson' | 'paymentTermsJson' | 'booking'
     >,
     studio: Pick<
       NonNullable<InvoiceDetailPayload['studio']>,
@@ -432,7 +435,7 @@ export class InvoiceService {
     const eventDate = new Date(invoice.booking.eventDate).toLocaleDateString('en-GB');
     const meetingDate = meeting ? new Date(meeting.meetingDate).toLocaleDateString('en-GB') : '-';
     const balanceDue = Math.max(0, Number(invoice.booking.balanceAmount) || Number(invoice.totalAmount) - Number(invoice.booking.advanceAmount));
-    const notesText = invoice.notes || meeting?.notes || 'All deliverables are subject to the studio’s standard terms and are released after payment settlement.';
+    const notesText = invoice.notes || 'No special notes provided.';
     const lineItems = [
       { description: 'Photography Package', qty: 1, rate: Number(invoice.totalAmount), amount: Number(invoice.totalAmount) },
       { description: 'Album Included', qty: albumDetails.length || 1, rate: 0, amount: 0 },
@@ -458,16 +461,16 @@ export class InvoiceService {
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <title>${invoice.invoiceNumber}</title>
           <style>
-            @page { size: A4; margin: 0; }
+            @page { size: A4; margin: 8mm; }
             html, body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, Helvetica, sans-serif; color: #0f172a; }
-            body { display: flex; justify-content: center; padding: 18px 0; }
-            .page { width: 210mm; min-height: 297mm; background: white; box-sizing: border-box; overflow: hidden; }
+            body { display: flex; justify-content: center; padding: 0; }
+            .page { width: 210mm; min-height: 297mm; background: white; box-sizing: border-box; }
             .header { background: #0b2545; padding: 26px 32px 18px; color: white; }
             .header-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
             .brand { font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
             .address { margin-top: 8px; font-size: 10px; color: #dbeafe; }
             .meta { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 16px; font-size: 9px; color: #dbeafe; }
-            .content { padding: 24px 32px 0; }
+            .content { padding: 24px 32px 24px; }
             .title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
             .title { font-size: 22px; font-weight: 700; letter-spacing: 0.06em; }
             .detail-list { margin-top: 12px; font-size: 10px; line-height: 1.6; color: #475569; }
@@ -476,21 +479,23 @@ export class InvoiceService {
             .status-label { font-size: 8px; letter-spacing: 0.28em; text-transform: uppercase; color: #64748b; }
             .status-value { margin-top: 6px; font-size: 14px; font-weight: 700; text-transform: uppercase; }
             .status-edit { margin-top: 5px; font-size: 9px; color: #64748b; }
-            .two-col { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-            .card { border: 1px solid #e2e8f0; border-radius: 16px; background: white; padding: 14px 16px; }
+            .two-col { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; page-break-inside: avoid; break-inside: avoid; }
+            .card { border: 1px solid #e2e8f0; border-radius: 16px; background: white; padding: 14px 16px; page-break-inside: avoid; break-inside: avoid; }
             .card-title { font-size: 9px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase; color: #475569; }
             .card-body { margin-top: 12px; font-size: 10px; line-height: 1.8; color: #334155; }
             .card-body strong { color: #0f172a; }
-            .table-wrap { margin-top: 18px; border: 1px solid #dbe2ea; border-radius: 16px; overflow: hidden; }
+            .table-wrap { margin-top: 18px; border: 1px solid #dbe2ea; border-radius: 16px; overflow: hidden; page-break-inside: avoid !important; break-inside: avoid !important; }
             table { width: 100%; border-collapse: collapse; }
-            thead th { background: #0b2545; color: white; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; text-align: left; padding: 12px 14px; font-weight: 700; }
+            thead th { background: #0b2545; color: #ffffff; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; text-align: left; padding: 12px 14px; font-weight: 700; }
+            .subhead th { background: #f1f5f9 !important; color: #334155 !important; font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; padding: 10px 14px; font-weight: 700; border-bottom: 1px solid #e2e8f0; }
             tbody td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-size: 10px; color: #334155; }
+            tbody tr { page-break-inside: avoid !important; break-inside: avoid !important; }
             tbody tr:nth-child(even) { background: #f8fafc; }
-            .amount-summary { margin-top: 18px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+            .amount-summary { margin-top: 18px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; page-break-inside: avoid !important; break-inside: avoid !important; }
             .summary-table { width: 100%; border-collapse: collapse; }
             .summary-table td { padding: 6px 0; font-size: 10px; color: #334155; }
             .summary-table .total td { padding-top: 10px; border-top: 1px solid #e2e8f0; font-weight: 700; color: #0f172a; }
-            .footer-signature { margin-top: 18px; padding: 12px 0 24px; display: flex; justify-content: space-between; align-items: flex-end; }
+            .footer-signature { margin-top: 24px; padding: 12px 0 24px; display: flex; justify-content: space-between; align-items: flex-end; page-break-inside: avoid !important; break-inside: avoid !important; }
             .signature-box { width: 160px; text-align: center; }
             .signature-line { border-top: 1px solid #cbd5e1; height: 18px; }
             .signature-label { margin-top: 6px; font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase; color: #64748b; }
@@ -573,28 +578,59 @@ export class InvoiceService {
                 </div>
               </div>
 
+              ${services.length > 0 ? `
               <div class="table-wrap">
+                <div style="background: #0b2545; color: #ffffff; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; padding: 10px 14px; font-weight: 700;">
+                  Coverage Services
+                </div>
                 <table>
                   <thead>
-                    <tr>
-                      <th>Description</th>
-                      <th style="text-align: right;">Qty</th>
-                      <th style="text-align: right;">Rate</th>
-                      <th style="text-align: right;">Amount</th>
+                    <tr class="subhead">
+                      <th style="width: 30px; text-align: center;">#</th>
+                      <th style="text-align: left;">Service Description</th>
+                      <th style="text-align: right;">Days / Duration</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${lineItems.map((item) => `
+                    ${services.map((item, idx) => `
                       <tr>
-                        <td>${item.description}</td>
-                        <td style="text-align: right;">${item.qty}</td>
-                        <td style="text-align: right;">₹${Number(item.rate).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
-                        <td style="text-align: right; font-weight: 700; color: #0f172a;">₹${Number(item.amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
+                        <td style="text-align: center; color: #94a3b8;">${item.itemNo || idx + 1}</td>
+                        <td style="font-weight: 600; text-transform: uppercase;">${item.description}</td>
+                        <td style="text-align: right;">${item.days}</td>
                       </tr>
                     `).join('')}
                   </tbody>
                 </table>
               </div>
+              ` : ''}
+
+              ${albumDetails.length > 0 ? `
+              <div class="table-wrap">
+                <div style="background: #0b2545; color: #ffffff; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; padding: 10px 14px; font-weight: 700;">
+                  Album Deliverables
+                </div>
+                <table>
+                  <thead>
+                    <tr class="subhead">
+                      <th style="width: 30px; text-align: center;">#</th>
+                      <th style="text-align: left;">Deliverable Item</th>
+                      <th style="text-align: center;">Quantity</th>
+                      <th style="text-align: right;">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${albumDetails.map((item, idx) => `
+                      <tr>
+                        <td style="text-align: center; color: #94a3b8;">${item.itemNo || idx + 1}</td>
+                        <td style="font-weight: 600; text-transform: uppercase;">${item.description}</td>
+                        <td style="text-align: center;">${item.qnt}</td>
+                        <td style="text-align: right; text-transform: uppercase;">${item.finish}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              ` : ''}
 
               <div class="amount-summary">
                 <div class="card">
@@ -603,7 +639,7 @@ export class InvoiceService {
                     <div><strong>Notes</strong></div>
                     <div>${notesText}</div>
                     <div style="margin-top: 12px;"><strong>Terms & Conditions</strong></div>
-                    <div>All deliverables are prepared according to studio standards. Final output is released after agreed payments are settled.</div>
+                    <div>${invoice.terms || studio?.invoiceTerms || 'All deliverables are prepared according to studio standards. Final output is released after agreed payments are settled.'}</div>
                   </div>
                 </div>
 
@@ -660,7 +696,7 @@ export class InvoiceService {
       const buffer = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '0', right: '0', bottom: '0', left: '0' },
+        margin: { top: '8mm', right: '8mm', bottom: '8mm', left: '8mm' },
       });
       await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer));
       return { filePath, buffer, fileName: `invoice-${invoice.invoiceNumber}.pdf` };
@@ -799,6 +835,7 @@ export class InvoiceService {
         tax,
         grandTotal,
         notes: this.normalizeText(createInvoiceDto.notes) ?? null,
+        terms: this.normalizeText(createInvoiceDto.terms) ?? defaults.terms,
         weddingDates: this.normalizeText(createInvoiceDto.weddingDates) ?? defaults.weddingDates,
         clientAddress: this.normalizeText(createInvoiceDto.clientAddress) ?? defaults.clientAddress,
         servicesJson: createInvoiceDto.servicesJson ?? defaults.servicesJson,
@@ -840,6 +877,9 @@ export class InvoiceService {
         grandTotal,
         ...(updateInvoiceDto.notes !== undefined
           ? { notes: this.normalizeText(updateInvoiceDto.notes) ?? null }
+          : {}),
+        ...(updateInvoiceDto.terms !== undefined
+          ? { terms: this.normalizeText(updateInvoiceDto.terms) ?? null }
           : {}),
         ...(updateInvoiceDto.weddingDates !== undefined
           ? { weddingDates: this.normalizeText(updateInvoiceDto.weddingDates) ?? null }

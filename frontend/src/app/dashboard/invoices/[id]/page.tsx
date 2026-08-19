@@ -6,7 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { ArrowLeft, CheckCircle2, LoaderCircle, Save } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LoaderCircle, Plus, Save, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,26 @@ import { Textarea } from "@/components/ui/textarea";
 import { InvoicePreviewDocument } from "@/components/invoice/InvoicePreviewDocument";
 import { formatCurrency, invoiceStatusStyles } from "@/components/invoice/invoice-utils";
 import { useInvoice, useUpdateInvoice } from "@/hooks/useInvoices";
+import type { AlbumDetailItem, ServiceItem } from "@/types/invoice";
 import axiosInstance from "@/lib/axios";
+
+const DEFAULT_SERVICES: ServiceItem[] = [
+  { itemNo: 1, description: "TRADITIONAL PHOTO", days: "02" },
+  { itemNo: 2, description: "TRADITIONAL VIDEO", days: "02" },
+  { itemNo: 3, description: "CANDID PHOTO", days: "02" },
+  { itemNo: 4, description: "CINEMATIC VIDEO", days: "02" },
+  { itemNo: 5, description: "DRONE", days: "02" },
+];
+
+const DEFAULT_ALBUM_DETAILS: AlbumDetailItem[] = [
+  { itemNo: 1, description: "12X36 ALBUM", qnt: "300PC", finish: "MAT" },
+  { itemNo: 2, description: "MINI BOOK", qnt: "01", finish: "GLOSSY" },
+  { itemNo: 3, description: "CALENDAR", qnt: "01", finish: "WALL" },
+  { itemNo: 4, description: "BAG", qnt: "01", finish: "PHOTO" },
+  { itemNo: 5, description: "FRAME 12X18", qnt: "01", finish: "MAT" },
+  { itemNo: 6, description: "ACRYLIC FRAME", qnt: "01", finish: "GLASS" },
+  { itemNo: 7, description: "PENDRIVE + BOX", qnt: "01", finish: "BOX" },
+];
 
 const invoiceUpdateSchema = z.object({
   weddingDates: z.string().optional(),
@@ -23,6 +42,7 @@ const invoiceUpdateSchema = z.object({
   discount: z.number().min(0),
   tax: z.number().min(0),
   notes: z.string().optional(),
+  terms: z.string().optional(),
 });
 
 type InvoiceUpdateValues = z.infer<typeof invoiceUpdateSchema>;
@@ -32,7 +52,9 @@ export default function InvoiceDetailPage() {
   const searchParams = useSearchParams();
   const invoiceId = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  // const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const [services, setServices] = useState<ServiceItem[]>(DEFAULT_SERVICES);
+  const [albumDetails, setAlbumDetails] = useState<AlbumDetailItem[]>(DEFAULT_ALBUM_DETAILS);
 
   const { data, isLoading, isError, error, refetch } = useInvoice(invoiceId || "");
   const updateInvoiceMutation = useUpdateInvoice();
@@ -51,6 +73,7 @@ export default function InvoiceDetailPage() {
       discount: 0,
       tax: 0,
       notes: "",
+      terms: "",
     },
   });
 
@@ -66,7 +89,28 @@ export default function InvoiceDetailPage() {
       discount: invoice.discount,
       tax: invoice.tax,
       notes: invoice.notes ?? "",
+      terms: invoice.terms ?? studio?.invoiceTerms ?? "",
     });
+
+    if (invoice.servicesJson) {
+      try {
+        setServices(JSON.parse(invoice.servicesJson));
+      } catch {
+        setServices(DEFAULT_SERVICES);
+      }
+    } else {
+      setServices(DEFAULT_SERVICES);
+    }
+
+    if (invoice.albumDetailsJson) {
+      try {
+        setAlbumDetails(JSON.parse(invoice.albumDetailsJson));
+      } catch {
+        setAlbumDetails(DEFAULT_ALBUM_DETAILS);
+      }
+    } else {
+      setAlbumDetails(DEFAULT_ALBUM_DETAILS);
+    }
   }, [booking, form, invoice]);
 
   useEffect(() => {
@@ -82,14 +126,54 @@ export default function InvoiceDetailPage() {
     window.setTimeout(() => setToast(null), 3500);
   };
 
+  const handleServiceChange = (index: number, field: keyof ServiceItem, value: string) => {
+    setServices((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddService = () => {
+    setServices((prev) => [
+      ...prev,
+      { itemNo: prev.length + 1, description: "", days: "01" },
+    ]);
+  };
+
+  const handleRemoveService = (index: number) => {
+    setServices((prev) =>
+      prev
+        .filter((_, idx) => idx !== index)
+        .map((item, idx) => ({ ...item, itemNo: idx + 1 }))
+    );
+  };
+
+  const handleAlbumDetailChange = (index: number, field: keyof AlbumDetailItem, value: string) => {
+    setAlbumDetails((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddAlbumDetail = () => {
+    setAlbumDetails((prev) => [
+      ...prev,
+      { itemNo: prev.length + 1, description: "", qnt: "01", finish: "" },
+    ]);
+  };
+
+  const handleRemoveAlbumDetail = (index: number) => {
+    setAlbumDetails((prev) =>
+      prev
+        .filter((_, idx) => idx !== index)
+        .map((item, idx) => ({ ...item, itemNo: idx + 1 }))
+    );
+  };
+
   const statusClass = useMemo(() => {
     if (!invoice?.bookingStatus) return "border-slate-200 bg-slate-50 text-slate-700";
     return invoiceStatusStyles[invoice.bookingStatus] ?? "border-slate-200 bg-slate-50 text-slate-700";
   }, [invoice?.bookingStatus]);
 
   const grandTotal = useMemo(() => invoice?.grandTotal ?? 0, [invoice]);
-
-  // Logo upload removed from invoice detail (managed from Settings)
 
   const onSubmit = async (values: InvoiceUpdateValues) => {
     if (!invoiceId) return;
@@ -103,6 +187,9 @@ export default function InvoiceDetailPage() {
           discount: Number(values.discount) || 0,
           tax: Number(values.tax) || 0,
           notes: values.notes?.trim() || undefined,
+          terms: values.terms?.trim() || undefined,
+          servicesJson: JSON.stringify(services),
+          albumDetailsJson: JSON.stringify(albumDetails),
         },
       });
 
@@ -225,9 +312,121 @@ export default function InvoiceDetailPage() {
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-600">Notes</label>
-              <Textarea {...form.register("notes")} className="mt-1 min-h-28" placeholder="Payment instructions, reminders, or internal notes" />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between pb-3">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900">2. Coverage Services</h4>
+                    <p className="text-xs text-slate-500">Edit service descriptions and days</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddService}
+                    className="h-7 border-sky-200 text-xs text-sky-600 hover:bg-sky-50"
+                  >
+                    <Plus className="mr-1 size-3" />
+                    Add Service
+                  </Button>
+                </div>
+                <div className="space-y-2.5">
+                  {services.map((service, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="w-5 text-xs font-semibold text-slate-400">{idx + 1}.</span>
+                      <Input
+                        className="flex-1 text-xs uppercase"
+                        value={service.description}
+                        onChange={(e) => handleServiceChange(idx, "description", e.target.value)}
+                        placeholder="Description"
+                      />
+                      <Input
+                        className="w-20 text-center text-xs"
+                        value={service.days}
+                        onChange={(e) => handleServiceChange(idx, "days", e.target.value)}
+                        placeholder="Days"
+                      />
+                      {services.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-rose-500 hover:bg-rose-50 hover:text-rose-700"
+                          onClick={() => handleRemoveService(idx)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between pb-3">
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-900">3. Album Deliverables</h4>
+                    <p className="text-xs text-slate-500">Edit album deliverable details</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddAlbumDetail}
+                    className="h-7 border-sky-200 text-xs text-sky-600 hover:bg-sky-50"
+                  >
+                    <Plus className="mr-1 size-3" />
+                    Add Deliverable
+                  </Button>
+                </div>
+                <div className="space-y-2.5">
+                  {albumDetails.map((album, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="w-5 text-xs font-semibold text-slate-400">{idx + 1}.</span>
+                      <Input
+                        className="flex-1 text-xs uppercase"
+                        value={album.description}
+                        onChange={(e) => handleAlbumDetailChange(idx, "description", e.target.value)}
+                        placeholder="Description"
+                      />
+                      <Input
+                        className="w-20 text-xs"
+                        value={album.qnt}
+                        onChange={(e) => handleAlbumDetailChange(idx, "qnt", e.target.value)}
+                        placeholder="Qnt"
+                      />
+                      <Input
+                        className="w-24 text-xs uppercase"
+                        value={album.finish}
+                        onChange={(e) => handleAlbumDetailChange(idx, "finish", e.target.value)}
+                        placeholder="Amount"
+                      />
+                      {albumDetails.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-rose-500 hover:bg-rose-50 hover:text-rose-700"
+                          onClick={() => handleRemoveAlbumDetail(idx)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-600">Notes</label>
+                <Textarea {...form.register("notes")} className="mt-1 min-h-24" placeholder="Payment instructions, reminders, or internal notes" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600">Terms & Conditions</label>
+                <Textarea {...form.register("terms")} className="mt-1 min-h-24" placeholder="Terms and conditions for this invoice" />
+              </div>
             </div>
 
             <div className="grid gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 md:grid-cols-3">

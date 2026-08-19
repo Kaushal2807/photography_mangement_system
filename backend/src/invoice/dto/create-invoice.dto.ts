@@ -28,6 +28,10 @@ export class CreateInvoiceDto {
 
   @IsOptional()
   @IsString()
+  terms?: string;
+
+  @IsOptional()
+  @IsString()
   weddingDates?: string;
 
   @IsOptional()

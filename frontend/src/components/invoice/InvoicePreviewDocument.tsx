@@ -147,40 +147,71 @@ export function InvoicePreviewDocument({ invoice, booking, meeting, editing, stu
           </SectionCard>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-          <table className="w-full border-collapse text-sm">
-            <thead className="bg-[#0b2545] text-white">
-              <tr className="text-left text-xs uppercase tracking-[0.22em]">
-                <th className="px-4 py-3 font-semibold">Description</th>
-                <th className="px-4 py-3 font-semibold text-right">Qty</th>
-                <th className="px-4 py-3 font-semibold text-right">Rate</th>
-                <th className="px-4 py-3 font-semibold text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineItems.map((item, index) => (
-                <tr key={item.description} className={index % 2 === 0 ? "bg-white" : "bg-slate-50/80"}>
-                  <td className="border-b border-slate-200 px-4 py-3 font-medium text-slate-900">{item.description}</td>
-                  <td className="border-b border-slate-200 px-4 py-3 text-right text-slate-700">{item.qty}</td>
-                  <td className="border-b border-slate-200 px-4 py-3 text-right text-slate-700">{formatCurrency(item.rate)}</td>
-                  <td className="border-b border-slate-200 px-4 py-3 text-right font-semibold text-slate-900">{formatCurrency(item.amount)}</td>
+        {services.length > 0 && (
+          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+            <div className="bg-[#0b2545] px-4 py-2.5 font-semibold text-xs text-white uppercase tracking-[0.2em]">
+              Coverage Services
+            </div>
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-slate-100 text-slate-700">
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider">
+                  <th className="w-12 px-4 py-2.5 font-semibold text-center">#</th>
+                  <th className="px-4 py-2.5 font-semibold">Service Description</th>
+                  <th className="w-32 px-4 py-2.5 font-semibold text-right">Days / Duration</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {services.map((item, index) => (
+                  <tr key={index} className={index % 2 === 0 ? "bg-white" : "bg-slate-50/70"}>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-center font-mono text-xs text-slate-400">{item.itemNo || index + 1}</td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 font-medium text-slate-900 uppercase">{item.description}</td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-right font-medium text-slate-700">{item.days}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {albumDetails.length > 0 && (
+          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+            <div className="bg-[#0b2545] px-4 py-2.5 font-semibold text-xs text-white uppercase tracking-[0.2em]">
+              Album Deliverables
+            </div>
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-slate-100 text-slate-700">
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wider">
+                  <th className="w-12 px-4 py-2.5 font-semibold text-center">#</th>
+                  <th className="px-4 py-2.5 font-semibold">Deliverable Item</th>
+                  <th className="w-28 px-4 py-2.5 font-semibold text-center">Quantity</th>
+                  <th className="w-36 px-4 py-2.5 font-semibold text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {albumDetails.map((item, index) => (
+                  <tr key={index} className={index % 2 === 0 ? "bg-white" : "bg-slate-50/70"}>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-center font-mono text-xs text-slate-400">{item.itemNo || index + 1}</td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 font-medium text-slate-900 uppercase">{item.description}</td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-center font-medium text-slate-700">{item.qnt}</td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-right font-medium text-slate-700 uppercase">{item.finish}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <SectionCard title="Notes & Terms">
             <div className="space-y-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Notes</p>
-                <p className="mt-1 text-slate-700">{invoice.notes || studio?.invoiceTerms || "No special notes provided."}</p>
+                <p className="mt-1 text-slate-700">{invoice.notes || "No special notes provided."}</p>
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Terms & Conditions</p>
                 <p className="mt-1 text-slate-700">
-                  All deliverables are prepared according to studio standards. Final output is released after agreed payments are settled.
+                  {invoice.terms || studio?.invoiceTerms || "All deliverables are prepared according to studio standards. Final output is released after agreed payments are settled."}
                 </p>
               </div>
             </div>
