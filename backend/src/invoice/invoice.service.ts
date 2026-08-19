@@ -8,6 +8,8 @@ import { mkdirSync, readFileSync, existsSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import puppeteer from 'puppeteer';
+import chromium from '@sparticuz/chromium';
+import puppeteerCore from 'puppeteer-core';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -716,21 +718,48 @@ export class InvoiceService {
     const meeting = await this.findRelatedMeeting(invoice.booking);
     const html = this.buildInvoiceHtmlDocument(invoice, studio, meeting);
 
-    try {
-      const execPath = this.resolvePuppeteerExecutablePath();
-      const browser = await puppeteer.launch({
-        headless: true,
-        executablePath: execPath,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--single-process',
-          '--no-zygote',
-        ],
-      });
+    let browser: any = null;
 
+    // 1. Try launching with @sparticuz/chromium (for Vercel / AWS Lambda / Serverless Linux)
+    try {
+      if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.platform === 'linux') {
+        const execPath = await chromium.executablePath();
+        if (execPath) {
+          browser = await puppeteerCore.launch({
+            args: chromium.args,
+            defaultViewport: (chromium as any).defaultViewport,
+            executablePath: execPath,
+            headless: ((chromium as any).headless ?? true) as any,
+          });
+        }
+      }
+    } catch (serverlessErr) {
+      console.warn('Sparticuz chromium launch failed:', serverlessErr);
+    }
+
+    // 2. Fallback to standard puppeteer (for Local Windows / Mac / Linux VPS with installed Chrome)
+    if (!browser) {
+      try {
+        const execPath = this.resolvePuppeteerExecutablePath();
+        browser = await puppeteer.launch({
+          headless: true,
+          executablePath: execPath,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote',
+          ],
+        });
+      } catch (puppeteerErr) {
+        console.warn('Standard puppeteer launch failed:', puppeteerErr);
+      }
+    }
+
+    // 3. Render HTML using browser if launched successfully
+    if (browser) {
       try {
         const page = await browser.newPage();
         await page.setContent(html, { waitUntil: 'load' });
@@ -744,12 +773,12 @@ export class InvoiceService {
       } finally {
         await browser.close();
       }
-    } catch (puppeteerErr) {
-      // Serverless / Linux cloud environments without Chromium installed fallback to PDFKit
-      const buffer = await this.generatePdfWithPdfKit(invoice, studio, meeting);
-      await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer)).catch(() => undefined);
-      return { filePath, buffer, fileName: `invoice-${invoice.invoiceNumber}.pdf` };
     }
+
+    // 4. Fallback to rich PDFKit generator if no browser executable is available
+    const buffer = await this.generatePdfWithPdfKit(invoice, studio, meeting);
+    await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer)).catch(() => undefined);
+    return { filePath, buffer, fileName: `invoice-${invoice.invoiceNumber}.pdf` };
   }
 
   private generatePdfWithPdfKit(
@@ -759,127 +788,177 @@ export class InvoiceService {
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        const doc = new PDFDocument({ margin: 25, size: 'A4' });
         const buffers: Buffer[] = [];
 
         doc.on('data', (chunk) => buffers.push(chunk));
         doc.on('end', () => resolve(Buffer.concat(buffers)));
         doc.on('error', (err) => reject(err));
 
-        const studioName = studio?.studioName || 'KANHA PHOTO & FILMS';
-        const studioAddress = studio?.address || '';
-        const studioEmail = studio?.email || '';
-        const studioMobile = studio?.mobile || '';
-        const studioGst = studio?.gstNumber || '';
-
-        // Top Header
-        doc.fillColor('#0284c7').fontSize(22).font('Helvetica-Bold').text(studioName, 40, 40);
-        doc.fillColor('#475569').fontSize(9).font('Helvetica');
-        if (studioAddress) doc.text(studioAddress);
-        const contactLine = [
-          studioEmail ? `Email: ${studioEmail}` : '',
-          studioMobile ? `Phone: ${studioMobile}` : '',
-          studioGst ? `GST: ${studioGst}` : '',
-        ]
-          .filter(Boolean)
-          .join('  |  ');
-        if (contactLine) doc.text(contactLine);
-
-        // Right side header
-        doc.fillColor('#0f172a').fontSize(20).font('Helvetica-Bold').text('INVOICE', 400, 40, { align: 'right' });
-        doc.fillColor('#64748b').fontSize(9).font('Helvetica');
-        doc.text(`Invoice No: ${invoice.invoiceNumber}`, { align: 'right' });
-        doc.text(`Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-GB')}`, { align: 'right' });
-        doc.text(`Booking No: ${invoice.booking.bookingNumber}`, { align: 'right' });
-
-        doc.moveDown(1.5);
-        const startY = Math.max(doc.y, 110);
-
-        // Divider line
-        doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(40, startY).lineTo(555, startY).stroke();
-
-        // Bill To
-        const billToY = startY + 12;
-        doc.fillColor('#0284c7').fontSize(11).font('Helvetica-Bold').text('BILLED TO:', 40, billToY);
-        doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(invoice.booking.clientName, 40, billToY + 16);
-        doc.fillColor('#475569').fontSize(9).font('Helvetica');
-        if (invoice.clientAddress) {
-          doc.text(invoice.clientAddress, 40, billToY + 30);
-        }
-
-        doc.fillColor('#475569').fontSize(9).font('Helvetica');
-        doc.text(`Event Date: ${new Date(invoice.booking.eventDate).toLocaleDateString('en-GB')}`, 350, billToY + 16, { align: 'right' });
-
-        const tableStartY = Math.max(doc.y + 20, billToY + 60);
-
-        // Table Header
-        doc.rect(40, tableStartY, 515, 22).fill('#f1f5f9');
-        doc.fillColor('#334155').fontSize(9).font('Helvetica-Bold');
-        doc.text('DESCRIPTION', 50, tableStartY + 6);
-        doc.text('AMOUNT', 400, tableStartY + 6, { align: 'right' });
-
-        let currentY = tableStartY + 28;
         const services: ServiceItem[] = this.parseJsonArray(invoice.servicesJson, this.getDefaultServices());
-        if (services.length > 0) {
-          services.forEach((s) => {
-            doc.fillColor('#1e293b').fontSize(9).font('Helvetica').text(`${s.itemNo}. ${s.description}`, 50, currentY);
-            if (s.days) {
-              doc.fillColor('#64748b').fontSize(8).text(`(${s.days} days)`, 250, currentY);
+        const albumDetails: AlbumDetailItem[] = this.parseJsonArray(invoice.albumDetailsJson, this.getDefaultAlbumDetails());
+        const paymentTerms: PaymentCondition = invoice.paymentTermsJson
+          ? JSON.parse(invoice.paymentTermsJson)
+          : this.getDefaultPaymentTerms(Number(invoice.totalAmount), Number(invoice.booking.advanceAmount), Number(invoice.booking.balanceAmount));
+
+        const studioName = studio?.studioName || 'KANHA PHOTO & FILMS';
+        const studioAddress = studio?.address || 'Studio address not configured';
+        const studioEmail = studio?.email || 'studio@email.com';
+        const studioPhone = studio?.mobile || '-';
+        const gstNumber = studio?.gstNumber || '-';
+        const invoiceDate = new Date(invoice.invoiceDate).toLocaleDateString('en-GB');
+        const eventDate = new Date(invoice.booking.eventDate).toLocaleDateString('en-GB');
+        const meetingDate = meeting ? new Date(meeting.meetingDate).toLocaleDateString('en-GB') : '-';
+        const balanceDue = Math.max(0, Number(invoice.booking.balanceAmount) || Number(invoice.totalAmount) - Number(invoice.booking.advanceAmount));
+        const notesText = invoice.notes || 'payment notes';
+
+        // 1. Dark Header Banner (#0b2545)
+        doc.rect(25, 25, 545, 65).fill('#0b2545');
+
+        // Studio Info
+        doc.fillColor('#ffffff').fontSize(16).font('Helvetica-Bold').text(studioName, 40, 36);
+        doc.fillColor('#dbeafe').fontSize(9).font('Helvetica').text(studioAddress, 40, 56);
+        doc.fillColor('#dbeafe').fontSize(8.5).text(`Phone: ${studioPhone}   Email: ${studioEmail}   GST: ${gstNumber}`, 40, 68);
+
+        // Logo Container Box (Right Side)
+        doc.roundedRect(440, 32, 115, 50, 6).fill('#ffffff');
+        doc.fillColor('#0b2545').fontSize(10).font('Helvetica-Bold').text(studioName, 445, 48, { width: 105, align: 'center' });
+
+        // 2. INVOICE Title & Status Box
+        let y = 105;
+        doc.fillColor('#0f172a').fontSize(22).font('Helvetica-Bold').text('INVOICE', 40, y);
+        doc.fillColor('#475569').fontSize(9.5).font('Helvetica');
+        doc.text(`Invoice Number: ${invoice.invoiceNumber}`, 40, y + 26);
+        doc.text(`Invoice Date: ${invoiceDate}`, 40, y + 38);
+        doc.text(`Booking Number: ${invoice.booking.bookingNumber}`, 40, y + 50);
+
+        // Status Card Right Box
+        doc.roundedRect(420, y, 150, 60, 8).fillAndStroke('#f8fafc', '#e2e8f0');
+        doc.fillColor('#64748b').fontSize(8).font('Helvetica-Bold').text('S T A T U S', 432, y + 10);
+        doc.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text(String(invoice.booking.status).toUpperCase(), 432, y + 24);
+        doc.fillColor('#64748b').fontSize(8.5).font('Helvetica').text(`Editing: ${invoice.booking.editingProject?.overallStatus || '-'}`, 432, y + 42);
+
+        // Helper to draw a rounded card
+        const drawCard = (x: number, cardY: number, w: number, h: number, title: string, lines: { label?: string; value: string; isBold?: boolean }[]) => {
+          doc.roundedRect(x, cardY, w, h, 10).fillAndStroke('#ffffff', '#e2e8f0');
+          doc.fillColor('#475569').fontSize(8).font('Helvetica-Bold').text(title.toUpperCase(), x + 14, cardY + 12);
+          let ly = cardY + 28;
+          lines.forEach((l) => {
+            if (l.label) {
+              doc.fillColor('#475569').fontSize(8.5).font('Helvetica-Bold').text(l.label, x + 14, ly, { continued: true });
+              doc.fillColor('#0f172a').font(l.isBold ? 'Helvetica-Bold' : 'Helvetica').text(` ${l.value}`);
+            } else {
+              doc.fillColor('#0f172a').fontSize(8.5).font(l.isBold ? 'Helvetica-Bold' : 'Helvetica').text(l.value, x + 14, ly);
             }
-            currentY += 18;
+            ly += 14;
           });
-        } else {
-          doc.fillColor('#1e293b').fontSize(9).font('Helvetica').text('Photography & Videography Services', 50, currentY);
-          currentY += 18;
+        };
+
+        // 3. 2x2 Grid Section
+        const gridY1 = y + 75;
+        drawCard(40, gridY1, 260, 85, 'B I L L   T O', [
+          { value: invoice.booking.clientName, isBold: true },
+          { value: invoice.clientAddress || invoice.booking.mobile },
+          { label: 'Mobile:', value: invoice.booking.mobile },
+          { label: 'Email:', value: meeting?.email || '-' },
+        ]);
+
+        drawCard(310, gridY1, 260, 85, 'E V E N T   D E T A I L S', [
+          { label: 'Event Name:', value: invoice.booking.eventName },
+          { label: 'Event Date:', value: eventDate },
+          { label: 'Location:', value: meeting?.eventLocation || '-' },
+          { label: 'Photographer:', value: invoice.booking.photographerName || meeting?.photographerName || '-' },
+        ]);
+
+        const gridY2 = gridY1 + 95;
+        drawCard(40, gridY2, 260, 85, 'M E E T I N G   I N F O R M A T I O N', [
+          { label: 'Meeting Date:', value: meetingDate },
+          { label: 'Meeting Time:', value: meeting?.meetingTime || '-' },
+          { label: 'Meeting Notes:', value: meeting?.notes || '-' },
+        ]);
+
+        drawCard(310, gridY2, 260, 85, 'E D I T I N G   I N F O R M A T I O N', [
+          { label: 'Editor Name:', value: invoice.booking.editingProject?.editorName || '-' },
+          { label: 'Project Status:', value: invoice.booking.editingProject?.overallStatus || '-' },
+          { label: 'Completion Date:', value: invoice.booking.editingProject ? new Date(invoice.booking.editingProject.assignedDate).toLocaleDateString('en-GB') : '-' },
+        ]);
+
+        // 4. COVERAGE SERVICES Table
+        let tableY = gridY2 + 100;
+        if (services.length > 0) {
+          doc.rect(40, tableY, 530, 20).fill('#0b2545');
+          doc.fillColor('#ffffff').fontSize(8.5).font('Helvetica-Bold').text('C O V E R A G E   S E R V I C E S', 50, tableY + 5);
+
+          tableY += 20;
+          doc.rect(40, tableY, 530, 18).fill('#f1f5f9');
+          doc.fillColor('#334155').fontSize(8).font('Helvetica-Bold');
+          doc.text('#', 50, tableY + 5);
+          doc.text('SERVICE DESCRIPTION', 90, tableY + 5);
+          doc.text('DAYS / DURATION', 470, tableY + 5, { align: 'right', width: 95 });
+
+          tableY += 18;
+          services.forEach((s, idx) => {
+            doc.fillColor('#94a3b8').fontSize(8.5).font('Helvetica').text(String(s.itemNo || idx + 1), 50, tableY + 6);
+            doc.fillColor('#0f172a').fontSize(8.5).font('Helvetica-Bold').text(String(s.description).toUpperCase(), 90, tableY + 6);
+            doc.fillColor('#334155').fontSize(8.5).font('Helvetica').text(String(s.days), 470, tableY + 6, { align: 'right', width: 95 });
+            tableY += 20;
+            doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(40, tableY).lineTo(570, tableY).stroke();
+          });
         }
 
-        currentY += 10;
-        doc.strokeColor('#e2e8f0').lineWidth(1).moveTo(40, currentY).lineTo(555, currentY).stroke();
-        currentY += 12;
+        // 5. ALBUM DELIVERABLES Table
+        tableY += 15;
+        if (albumDetails.length > 0) {
+          doc.rect(40, tableY, 530, 20).fill('#0b2545');
+          doc.fillColor('#ffffff').fontSize(8.5).font('Helvetica-Bold').text('A L B U M   D E L I V E R A B L E S', 50, tableY + 5);
 
-        const formatMoney = (amount: number) => `Rs. ${Number(amount).toLocaleString('en-IN')}`;
+          tableY += 20;
+          doc.rect(40, tableY, 530, 18).fill('#f1f5f9');
+          doc.fillColor('#334155').fontSize(8).font('Helvetica-Bold');
+          doc.text('#', 50, tableY + 5);
+          doc.text('DELIVERABLE ITEM', 90, tableY + 5);
+          doc.text('QUANTITY', 340, tableY + 5, { align: 'center', width: 80 });
+          doc.text('AMOUNT', 470, tableY + 5, { align: 'right', width: 95 });
 
-        doc.fillColor('#475569').fontSize(9).font('Helvetica');
-        doc.text('Total Package Amount:', 300, currentY, { align: 'left' });
-        doc.text(formatMoney(Number(invoice.totalAmount)), 400, currentY, { align: 'right' });
-        currentY += 16;
-
-        if (Number(invoice.discount) > 0) {
-          doc.text('Discount:', 300, currentY, { align: 'left' });
-          doc.text(`- ${formatMoney(Number(invoice.discount))}`, 400, currentY, { align: 'right' });
-          currentY += 16;
+          tableY += 18;
+          albumDetails.forEach((a, idx) => {
+            doc.fillColor('#94a3b8').fontSize(8.5).font('Helvetica').text(String(a.itemNo || idx + 1), 50, tableY + 6);
+            doc.fillColor('#0f172a').fontSize(8.5).font('Helvetica-Bold').text(String(a.description).toUpperCase(), 90, tableY + 6);
+            doc.fillColor('#334155').fontSize(8.5).font('Helvetica').text(String(a.qnt), 340, tableY + 6, { align: 'center', width: 80 });
+            doc.fillColor('#334155').fontSize(8.5).font('Helvetica').text(String(a.finish).toUpperCase(), 470, tableY + 6, { align: 'right', width: 95 });
+            tableY += 20;
+            doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(40, tableY).lineTo(570, tableY).stroke();
+          });
         }
 
-        if (Number(invoice.tax) > 0) {
-          doc.text('Tax:', 300, currentY, { align: 'left' });
-          doc.text(`+ ${formatMoney(Number(invoice.tax))}`, 400, currentY, { align: 'right' });
-          currentY += 16;
-        }
+        // Add page 2 for Notes & Terms, Amount Summary, Authorized Signature
+        doc.addPage({ margin: 25, size: 'A4' });
+        let p2y = 35;
 
-        doc.rect(295, currentY, 260, 24).fill('#e0f2fe');
-        doc.fillColor('#0369a1').fontSize(11).font('Helvetica-Bold');
-        doc.text('GRAND TOTAL:', 305, currentY + 6);
-        doc.text(formatMoney(Number(invoice.grandTotal)), 400, currentY + 6, { align: 'right' });
-        currentY += 32;
+        // Notes & Terms Card (Left Side)
+        drawCard(40, p2y, 260, 145, 'N O T E S   &   T E R M S', [
+          { label: 'Notes:', value: notesText },
+          { label: 'Terms & Conditions:', value: invoice.terms || studio?.invoiceTerms || 'teamns & condition' },
+        ]);
 
-        doc.fillColor('#475569').fontSize(9).font('Helvetica');
-        doc.text('Advance Received:', 300, currentY, { align: 'left' });
-        doc.text(formatMoney(Number(invoice.booking.advanceAmount)), 400, currentY, { align: 'right' });
-        currentY += 16;
+        // Amount Summary Card (Right Side)
+        const formatRs = (num: number) => `₹${Number(num).toLocaleString('en-IN')}`;
+        drawCard(310, p2y, 260, 145, 'A M O U N T   S U M M A R Y', [
+          { label: 'Subtotal:', value: formatRs(Number(invoice.totalAmount)) },
+          { label: 'Discount:', value: formatRs(Number(invoice.discount)) },
+          { label: 'Tax:', value: formatRs(Number(invoice.tax)) },
+          { label: 'Grand Total:', value: formatRs(Number(invoice.grandTotal)), isBold: true },
+          { label: 'Advance Paid:', value: formatRs(Number(paymentTerms.advance)) },
+          { label: 'Balance Due:', value: formatRs(Number(balanceDue)), isBold: true },
+        ]);
 
-        doc.font('Helvetica-Bold').fillColor('#0f172a');
-        doc.text('Balance Due:', 300, currentY, { align: 'left' });
-        doc.text(formatMoney(Number(invoice.booking.balanceAmount)), 400, currentY, { align: 'right' });
-        currentY += 24;
+        // Authorized Signature Block at bottom
+        p2y += 180;
+        doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(40, p2y).lineTo(200, p2y).stroke();
+        doc.fillColor('#64748b').fontSize(8).font('Helvetica-Bold').text('A U T H O R I Z E D   S I G N A T U R E', 40, p2y + 8);
 
-        if (invoice.notes) {
-          doc.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text('Notes & Instructions:', 40, currentY);
-          doc.fillColor('#475569').fontSize(8).font('Helvetica').text(invoice.notes, 40, currentY + 12);
-        }
-
-        if (studio?.invoiceFooter) {
-          doc.fillColor('#94a3b8').fontSize(8).font('Helvetica').text(studio.invoiceFooter, 40, 780, { align: 'center', width: 515 });
-        }
+        doc.fillColor('#64748b').fontSize(8.5).font('Helvetica').text(studioName, 360, p2y + 8, { align: 'right', width: 210 });
+        doc.text(studioAddress, 360, p2y + 20, { align: 'right', width: 210 });
 
         doc.end();
       } catch (err) {
