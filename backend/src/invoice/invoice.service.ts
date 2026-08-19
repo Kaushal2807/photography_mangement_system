@@ -5,9 +5,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, BookingStatus as PrismaBookingStatus } from '@prisma/client';
 import { mkdirSync, readFileSync, existsSync } from 'fs';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import puppeteer from 'puppeteer';
+import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { GetInvoicesQueryDto } from './dto/get-invoices-query.dto';
@@ -150,13 +151,23 @@ export class InvoiceService {
   }
 
   private getInvoiceDirectory(): string {
-    return join(process.cwd(), 'uploads', 'invoices');
+    const defaultDir = join(process.cwd(), 'uploads', 'invoices');
+    try {
+      mkdirSync(defaultDir, { recursive: true });
+      return defaultDir;
+    } catch {
+      const fallbackDir = join(tmpdir(), 'invoices');
+      try {
+        mkdirSync(fallbackDir, { recursive: true });
+      } catch {
+        // ignore
+      }
+      return fallbackDir;
+    }
   }
 
   private ensureInvoiceDirectory() {
-    const dir = this.getInvoiceDirectory();
-    mkdirSync(dir, { recursive: true });
-    return dir;
+    return this.getInvoiceDirectory();
   }
 
   private getDefaultServices(): ServiceItem[] {
@@ -397,8 +408,29 @@ export class InvoiceService {
   }
 
   private resolvePuppeteerExecutablePath(): string | undefined {
+    if (process.env.PUPPETEER_EXECUTABLE_PATH && existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+      return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    try {
+      const defaultPath = puppeteer.executablePath();
+      if (defaultPath && existsSync(defaultPath)) {
+        return defaultPath;
+      }
+    } catch {
+      // Ignore if executablePath() is not available
+    }
+
     const candidates = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
+      // Linux candidates
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/snap/bin/chromium',
+      // macOS candidate
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      // Windows candidates
       join(homedir(), '.cache', 'puppeteer', 'chrome', 'win64-151.0.7922.138', 'chrome-win64', 'chrome.exe'),
       join(homedir(), '.cache', 'puppeteer', 'chrome', 'win64-148.0.7778.97', 'chrome-win64', 'chrome.exe'),
       join(homedir(), '.cache', 'puppeteer', 'chrome-headless-shell', 'win64-151.0.7922.138', 'chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
@@ -684,25 +716,176 @@ export class InvoiceService {
     const meeting = await this.findRelatedMeeting(invoice.booking);
     const html = this.buildInvoiceHtmlDocument(invoice, studio, meeting);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      executablePath: this.resolvePuppeteerExecutablePath(),
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-
     try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'load' });
-      const buffer = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '8mm', right: '8mm', bottom: '8mm', left: '8mm' },
+      const execPath = this.resolvePuppeteerExecutablePath();
+      const browser = await puppeteer.launch({
+        headless: true,
+        executablePath: execPath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+          '--no-zygote',
+        ],
       });
-      await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer));
+
+      try {
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'load' });
+        const buffer = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '8mm', right: '8mm', bottom: '8mm', left: '8mm' },
+        });
+        await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer)).catch(() => undefined);
+        return { filePath, buffer, fileName: `invoice-${invoice.invoiceNumber}.pdf` };
+      } finally {
+        await browser.close();
+      }
+    } catch (puppeteerErr) {
+      // Serverless / Linux cloud environments without Chromium installed fallback to PDFKit
+      const buffer = await this.generatePdfWithPdfKit(invoice, studio, meeting);
+      await import('fs/promises').then((fs) => fs.writeFile(filePath, buffer)).catch(() => undefined);
       return { filePath, buffer, fileName: `invoice-${invoice.invoiceNumber}.pdf` };
-    } finally {
-      await browser.close();
     }
+  }
+
+  private generatePdfWithPdfKit(
+    invoice: InvoiceWithRelations,
+    studio: Awaited<ReturnType<InvoiceService['getStudioSettings']>>,
+    meeting?: Awaited<ReturnType<InvoiceService['findRelatedMeeting']>>,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        const buffers: Buffer[] = [];
+
+        doc.on('data', (chunk) => buffers.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', (err) => reject(err));
+
+        const studioName = studio?.studioName || 'KANHA PHOTO & FILMS';
+        const studioAddress = studio?.address || '';
+        const studioEmail = studio?.email || '';
+        const studioMobile = studio?.mobile || '';
+        const studioGst = studio?.gstNumber || '';
+
+        // Top Header
+        doc.fillColor('#0284c7').fontSize(22).font('Helvetica-Bold').text(studioName, 40, 40);
+        doc.fillColor('#475569').fontSize(9).font('Helvetica');
+        if (studioAddress) doc.text(studioAddress);
+        const contactLine = [
+          studioEmail ? `Email: ${studioEmail}` : '',
+          studioMobile ? `Phone: ${studioMobile}` : '',
+          studioGst ? `GST: ${studioGst}` : '',
+        ]
+          .filter(Boolean)
+          .join('  |  ');
+        if (contactLine) doc.text(contactLine);
+
+        // Right side header
+        doc.fillColor('#0f172a').fontSize(20).font('Helvetica-Bold').text('INVOICE', 400, 40, { align: 'right' });
+        doc.fillColor('#64748b').fontSize(9).font('Helvetica');
+        doc.text(`Invoice No: ${invoice.invoiceNumber}`, { align: 'right' });
+        doc.text(`Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-GB')}`, { align: 'right' });
+        doc.text(`Booking No: ${invoice.booking.bookingNumber}`, { align: 'right' });
+
+        doc.moveDown(1.5);
+        const startY = Math.max(doc.y, 110);
+
+        // Divider line
+        doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(40, startY).lineTo(555, startY).stroke();
+
+        // Bill To
+        const billToY = startY + 12;
+        doc.fillColor('#0284c7').fontSize(11).font('Helvetica-Bold').text('BILLED TO:', 40, billToY);
+        doc.fillColor('#0f172a').fontSize(10).font('Helvetica-Bold').text(invoice.booking.clientName, 40, billToY + 16);
+        doc.fillColor('#475569').fontSize(9).font('Helvetica');
+        if (invoice.clientAddress) {
+          doc.text(invoice.clientAddress, 40, billToY + 30);
+        }
+
+        doc.fillColor('#475569').fontSize(9).font('Helvetica');
+        doc.text(`Event Date: ${new Date(invoice.booking.eventDate).toLocaleDateString('en-GB')}`, 350, billToY + 16, { align: 'right' });
+
+        const tableStartY = Math.max(doc.y + 20, billToY + 60);
+
+        // Table Header
+        doc.rect(40, tableStartY, 515, 22).fill('#f1f5f9');
+        doc.fillColor('#334155').fontSize(9).font('Helvetica-Bold');
+        doc.text('DESCRIPTION', 50, tableStartY + 6);
+        doc.text('AMOUNT', 400, tableStartY + 6, { align: 'right' });
+
+        let currentY = tableStartY + 28;
+        const services: ServiceItem[] = this.parseJsonArray(invoice.servicesJson, this.getDefaultServices());
+        if (services.length > 0) {
+          services.forEach((s) => {
+            doc.fillColor('#1e293b').fontSize(9).font('Helvetica').text(`${s.itemNo}. ${s.description}`, 50, currentY);
+            if (s.days) {
+              doc.fillColor('#64748b').fontSize(8).text(`(${s.days} days)`, 250, currentY);
+            }
+            currentY += 18;
+          });
+        } else {
+          doc.fillColor('#1e293b').fontSize(9).font('Helvetica').text('Photography & Videography Services', 50, currentY);
+          currentY += 18;
+        }
+
+        currentY += 10;
+        doc.strokeColor('#e2e8f0').lineWidth(1).moveTo(40, currentY).lineTo(555, currentY).stroke();
+        currentY += 12;
+
+        const formatMoney = (amount: number) => `Rs. ${Number(amount).toLocaleString('en-IN')}`;
+
+        doc.fillColor('#475569').fontSize(9).font('Helvetica');
+        doc.text('Total Package Amount:', 300, currentY, { align: 'left' });
+        doc.text(formatMoney(Number(invoice.totalAmount)), 400, currentY, { align: 'right' });
+        currentY += 16;
+
+        if (Number(invoice.discount) > 0) {
+          doc.text('Discount:', 300, currentY, { align: 'left' });
+          doc.text(`- ${formatMoney(Number(invoice.discount))}`, 400, currentY, { align: 'right' });
+          currentY += 16;
+        }
+
+        if (Number(invoice.tax) > 0) {
+          doc.text('Tax:', 300, currentY, { align: 'left' });
+          doc.text(`+ ${formatMoney(Number(invoice.tax))}`, 400, currentY, { align: 'right' });
+          currentY += 16;
+        }
+
+        doc.rect(295, currentY, 260, 24).fill('#e0f2fe');
+        doc.fillColor('#0369a1').fontSize(11).font('Helvetica-Bold');
+        doc.text('GRAND TOTAL:', 305, currentY + 6);
+        doc.text(formatMoney(Number(invoice.grandTotal)), 400, currentY + 6, { align: 'right' });
+        currentY += 32;
+
+        doc.fillColor('#475569').fontSize(9).font('Helvetica');
+        doc.text('Advance Received:', 300, currentY, { align: 'left' });
+        doc.text(formatMoney(Number(invoice.booking.advanceAmount)), 400, currentY, { align: 'right' });
+        currentY += 16;
+
+        doc.font('Helvetica-Bold').fillColor('#0f172a');
+        doc.text('Balance Due:', 300, currentY, { align: 'left' });
+        doc.text(formatMoney(Number(invoice.booking.balanceAmount)), 400, currentY, { align: 'right' });
+        currentY += 24;
+
+        if (invoice.notes) {
+          doc.fillColor('#0f172a').fontSize(9).font('Helvetica-Bold').text('Notes & Instructions:', 40, currentY);
+          doc.fillColor('#475569').fontSize(8).font('Helvetica').text(invoice.notes, 40, currentY + 12);
+        }
+
+        if (studio?.invoiceFooter) {
+          doc.fillColor('#94a3b8').fontSize(8).font('Helvetica').text(studio.invoiceFooter, 40, 780, { align: 'center', width: 515 });
+        }
+
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
   async findAll(query: GetInvoicesQueryDto) {
@@ -959,7 +1142,11 @@ export class InvoiceService {
 
     const studio = await this.getStudioSettings();
     const pdf = await this.buildInvoicePdf(invoice, studio);
-    await this.prisma.invoice.update({ where: { id }, data: { pdfUrl: pdf.filePath } });
+    try {
+      await this.prisma.invoice.update({ where: { id }, data: { pdfUrl: pdf.filePath } });
+    } catch {
+      // Ignore DB update error if file system is read-only
+    }
 
     return { buffer: pdf.buffer, filename: `${invoice.invoiceNumber}.pdf` };
   }
