@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDeleteInvoice, useInvoices } from "@/hooks/useInvoices";
+import axiosInstance from "@/lib/axios";
 import { formatCurrency, invoiceStatusOptions, invoiceStatusStyles } from "@/components/invoice/invoice-utils";
 import type { InvoiceListItem } from "@/types/invoice";
 
@@ -27,6 +28,7 @@ export default function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const { data, isLoading, isError, error, refetch, isFetching } = useInvoices({
     page,
@@ -102,10 +104,29 @@ export default function InvoicesPage() {
     }
   };
 
-  const openPdf = (invoice: InvoiceListItem) => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
-    const cacheBust = `?ts=${Date.now()}`;
-    window.open(`${apiBase}/invoice/${invoice.id}/pdf${cacheBust}`, "_blank", "noopener,noreferrer");
+  const downloadPdf = async (invoice: InvoiceListItem) => {
+    setDownloadingId(invoice.id);
+    try {
+      const response = await axiosInstance.get(`/invoice/${invoice.id}/pdf`, {
+        responseType: "blob",
+        params: { ts: Date.now() },
+      });
+
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      showToast("PDF downloaded successfully", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to download PDF", "error");
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
 
@@ -311,9 +332,14 @@ export default function InvoicesPage() {
                               View
                             </Button>
                           </Link>
-                          <Button variant="outline" size="sm" onClick={() => openPdf(invoice)}>
-                            <Download className="mr-1.5 size-3.5" />
-                            PDF
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={downloadingId === invoice.id}
+                            onClick={() => void downloadPdf(invoice)}
+                          >
+                            <Download className={`mr-1.5 size-3.5 ${downloadingId === invoice.id ? "animate-spin" : ""}`} />
+                            {downloadingId === invoice.id ? "Downloading..." : "PDF"}
                           </Button>
                           {/* Print removed - keep View, PDF, Delete */}
                           <Button
