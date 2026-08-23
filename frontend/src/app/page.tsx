@@ -32,20 +32,6 @@ const initialForm: FormData = {
   confirmPassword: "",
 };
 
-const setupHighlights = [
-  "Single-studio installation guard",
-  "First admin account creation",
-  "Studio profile and invoice prefix setup",
-  "Production-ready validation and security",
-];
-
-const blueprintMetrics = [
-  { label: "Setup Flow", value: "01 / 01" },
-  { label: "Primary Mode", value: "Install" },
-  { label: "Security", value: "bcrypt" },
-  { label: "Database", value: "PostgreSQL" },
-];
-
 export default function Home() {
   const router = useRouter();
   const [formData, setFormData] = useState<FormData>(initialForm);
@@ -120,46 +106,18 @@ export default function Home() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_32%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.18),transparent_28%),linear-gradient(180deg,#040816_0%,#02040b_100%)]" />
       <div className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
         <div className="mb-6 rounded-[1.75rem] border border-white/10 bg-white/5 px-5 py-4 shadow-[0_24px_120px_rgba(0,0,0,0.45)] backdrop-blur-xl">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.55em] text-sky-300/90">
-                Photography Studio Manager
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl [font-family:var(--font-geist-sans),Georgia,serif]">
-                {isSetupCompleted ? "Studio setup is complete" : "Complete your studio setup"}
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                {isSetupCompleted
-                  ? "Your studio is already configured. You can now continue using the system."
-                  : "A first-run installation screen for one studio, one owner, and a secure production-ready launch."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-right">
-              <p className="text-[0.62rem] uppercase tracking-[0.45em] text-sky-300">Mode</p>
-              <p className="mt-1 text-lg font-semibold text-white">
-                {loading ? "Checking" : isSetupCompleted ? "Completed" : "Install"}
-              </p>
-            </div>
+          <div>
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.55em] text-sky-300/90">
+              Photography Studio Manager
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl [font-family:var(--font-geist-sans),Georgia,serif]">
+              {isSetupCompleted ? "Studio setup is complete" : "Complete your studio setup"}
+            </h1>
           </div>
         </div>
 
         <section className="mx-auto w-full max-w-4xl">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {blueprintMetrics.map((metric) => (
-              <div
-                key={metric.label}
-                className="rounded-2xl border border-white/8 bg-slate-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-              >
-                <p className="text-[0.68rem] uppercase tracking-[0.35em] text-slate-400">
-                  {metric.label}
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">{metric.value}</p>
-              </div>
-            ))}
-          </div>
-
-          <Card className="mt-6 border-white/10 bg-slate-950/80 shadow-[0_24px_120px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <Card className="border-white/10 bg-slate-950/80 shadow-[0_24px_120px_rgba(0,0,0,0.55)] backdrop-blur-xl">
             <CardHeader className="border-b border-white/8 bg-white/5">
               <CardTitle className="text-xl text-white">Studio Setup</CardTitle>
               <CardDescription className="text-slate-300">
