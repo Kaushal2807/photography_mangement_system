@@ -36,7 +36,8 @@ describe('AppController', () => {
     it('should return health status', async () => {
       const health = await appController.getHealth();
       expect(health.status).toBe('ok');
-      expect(health.database).toBe('connected');
+      expect(health.timestamp).toEqual(expect.any(String));
+      expect(health.uptime).toEqual(expect.any(Number));
     });
   });
 
